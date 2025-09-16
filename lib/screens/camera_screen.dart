@@ -30,7 +30,20 @@ class _CameraScreenState extends State<CameraScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _checkPermissionAndInitialize();
+    // Request permission immediately on app launch
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _requestCameraPermissionOnLaunch();
+    });
+  }
+
+  Future<void> _requestCameraPermissionOnLaunch() async {
+    final status = await Permission.camera.status;
+    if (status == PermissionStatus.granted) {
+      _initializeCamera();
+    } else {
+      // Show permission request dialog immediately
+      _requestCameraPermission();
+    }
   }
 
   @override
@@ -66,73 +79,8 @@ class _CameraScreenState extends State<CameraScreen>
 
     if (status == PermissionStatus.granted) {
       _initializeCamera();
-    } else if (status == PermissionStatus.permanentlyDenied) {
-      _showPermissionDialog();
-    } else if (status == PermissionStatus.denied) {
-      // Show a message explaining why permission is needed
-      _showPermissionDeniedMessage();
     }
-  }
-
-  void _showPermissionDeniedMessage() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Row(
-          children: [
-            Icon(Icons.warning_rounded, color: Colors.white),
-            SizedBox(width: 8),
-            Expanded(
-              child: Text('Camera permission is required to scan numbers'),
-            ),
-          ],
-        ),
-        backgroundColor: Colors.orange,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        action: SnackBarAction(
-          label: 'Try Again',
-          textColor: Colors.white,
-          onPressed: _requestCameraPermission,
-        ),
-      ),
-    );
-  }
-
-  void _showPermissionDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.camera_alt, color: Colors.blue),
-              SizedBox(width: 8),
-              Text('Camera Permission Required'),
-            ],
-          ),
-          content: const Text(
-            'This app needs camera access to scan numbers from images. Please grant camera permission in your device settings.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                SystemNavigator.pop(); // Exit app
-              },
-              child: const Text('Exit App'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                openAppSettings();
-              },
-              child: const Text('Open Settings'),
-            ),
-          ],
-        );
-      },
-    );
+    // Remove automatic dialogs - let the UI handle the states
   }
 
   Future<void> _initializeCamera() async {
@@ -528,108 +476,146 @@ class _CameraScreenState extends State<CameraScreen>
           colors: [Colors.black87, Colors.black],
         ),
       ),
-      child: Center(
+      child: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(32),
+          padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              // Camera icon
               Container(
-                padding: const EdgeInsets.all(24),
+                padding: const EdgeInsets.all(32),
                 decoration: BoxDecoration(
                   color: Colors.blue.withOpacity(0.1),
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                  border:
+                      Border.all(color: Colors.blue.withOpacity(0.3), width: 2),
                 ),
                 child: const Icon(
                   Icons.camera_alt_rounded,
-                  size: 64,
+                  size: 80,
                   color: Colors.blue,
                 ),
               ),
-              const SizedBox(height: 32),
+
+              const SizedBox(height: 40),
+
+              // Title
               const Text(
                 'Camera Access Required',
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 24,
+                  fontSize: 28,
                   fontWeight: FontWeight.bold,
                 ),
                 textAlign: TextAlign.center,
               ),
+
               const SizedBox(height: 16),
+
+              // Description
               Text(
                 'To scan numbers from images, this app needs access to your camera. Your privacy is important - images are processed locally on your device.',
                 style: TextStyle(
                   color: Colors.white.withOpacity(0.8),
                   fontSize: 16,
-                  height: 1.5,
+                  height: 1.6,
                 ),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _requestCameraPermission,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+
+              const SizedBox(height: 40),
+
+              // Permission button
+              if (_permissionStatus != PermissionStatus.permanentlyDenied) ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _requestCameraPermission,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      elevation: 8,
                     ),
-                    elevation: 4,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.camera_alt_rounded, size: 24),
+                        const SizedBox(width: 12),
+                        Text(
+                          _permissionStatus == PermissionStatus.denied
+                              ? 'Try Again'
+                              : 'Grant Camera Permission',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+
+              // Denied state message
+              if (_permissionStatus == PermissionStatus.denied) ...[
+                const SizedBox(height: 24),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.orange.withOpacity(0.3)),
                   ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.camera_alt_rounded, size: 20),
-                      const SizedBox(width: 8),
-                      Text(
-                        _permissionStatus == PermissionStatus.denied
-                            ? 'Grant Permission'
-                            : 'Grant Camera Permission',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
+                      const Icon(Icons.warning_rounded, color: Colors.orange),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Permission was denied. Please grant camera access to continue.',
+                          style: TextStyle(
+                            color: Colors.orange.withOpacity(0.9),
+                            fontSize: 14,
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
-              if (_permissionStatus == PermissionStatus.denied) ...[
-                const SizedBox(height: 16),
-                Text(
-                  'Permission was denied. Please grant camera access to continue.',
-                  style: TextStyle(
-                    color: Colors.orange.withOpacity(0.9),
-                    fontSize: 14,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
               ],
+
+              // Permanently denied state
               if (_permissionStatus == PermissionStatus.permanentlyDenied) ...[
-                const SizedBox(height: 16),
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
                     color: Colors.red.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: Colors.red.withOpacity(0.3)),
                   ),
                   child: Column(
                     children: [
+                      const Icon(
+                        Icons.block_rounded,
+                        color: Colors.red,
+                        size: 32,
+                      ),
+                      const SizedBox(height: 12),
                       Text(
-                        'Camera permission was permanently denied. Please enable it in your device settings.',
+                        'Camera permission was permanently denied. Please enable it in your device settings to continue.',
                         style: TextStyle(
                           color: Colors.red.withOpacity(0.9),
-                          fontSize: 14,
+                          fontSize: 16,
+                          height: 1.4,
                         ),
                         textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 20),
                       Row(
                         children: [
                           Expanded(
@@ -638,8 +624,16 @@ class _CameraScreenState extends State<CameraScreen>
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.red,
                                 foregroundColor: Colors.white,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
                               ),
-                              child: const Text('Open Settings'),
+                              child: const Text(
+                                'Open Settings',
+                                style: TextStyle(fontWeight: FontWeight.w600),
+                              ),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -649,8 +643,16 @@ class _CameraScreenState extends State<CameraScreen>
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.white,
                                 side: const BorderSide(color: Colors.white54),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
                               ),
-                              child: const Text('Refresh'),
+                              child: const Text(
+                                'Refresh',
+                                style: TextStyle(fontWeight: FontWeight.w600),
+                              ),
                             ),
                           ),
                         ],
