@@ -52,8 +52,8 @@ class ScanResultCard extends StatelessWidget {
 
   Widget _buildLeadingIcon(bool hasNumbers) {
     return Container(
-      width: 56,
-      height: 56,
+      width: 60,
+      height: 60,
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: hasNumbers
@@ -68,7 +68,7 @@ class ScanResultCard extends StatelessWidget {
           Icon(
             hasNumbers ? Icons.numbers_rounded : Icons.image_rounded,
             color: Colors.white,
-            size: 20,
+            size: 22,
           ),
           const SizedBox(height: 2),
           Text(

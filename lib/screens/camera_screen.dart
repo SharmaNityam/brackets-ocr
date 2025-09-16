@@ -151,8 +151,8 @@ class _CameraScreenState extends State<CameraScreen>
   void _showResultSnackBar(List<String> numbers) {
     final bool hasNumbers = numbers.isNotEmpty;
     final String message = hasNumbers
-        ? 'Found ${numbers.length} number${numbers.length == 1 ? '' : 's'}: ${numbers.take(3).join(', ')}${numbers.length > 3 ? '...' : ''}'
-        : 'Image saved - No numbers detected';
+        ? 'Found ${numbers.length} number${numbers.length == 1 ? '' : 's'}: ${numbers.take(2).join(', ')}${numbers.length > 2 ? '...' : ''}'
+        : 'Image saved - No numbers found';
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
