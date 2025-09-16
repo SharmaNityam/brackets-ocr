@@ -1,14 +1,18 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:path_provider/path_provider.dart';
-import '../services/ocr_service.dart';
-import '../services/database_helper.dart';
-import '../models/scan_result.dart';
-import 'history_screen.dart';
+
+import '../services/permission_service.dart';
+import '../services/camera_service.dart';
+import '../services/scan_service.dart';
+import '../widgets/permission_widget.dart';
+import '../widgets/loading_widget.dart';
+import '../widgets/error_widget.dart';
 import '../widgets/camera_overlay.dart';
+import '../widgets/camera_controls.dart';
+import '../widgets/camera_instructions.dart';
+import 'history_screen.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -30,57 +34,58 @@ class _CameraScreenState extends State<CameraScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Request permission immediately on app launch
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _requestCameraPermissionOnLaunch();
     });
   }
 
-  Future<void> _requestCameraPermissionOnLaunch() async {
-    final status = await Permission.camera.status;
-    if (status == PermissionStatus.granted) {
-      _initializeCamera();
-    } else {
-      // Show permission request dialog immediately
-      _requestCameraPermission();
-    }
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    CameraService.disposeController(_controller);
+    super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final CameraController? cameraController = _controller;
-
     if (state == AppLifecycleState.inactive) {
-      if (cameraController != null && cameraController.value.isInitialized) {
-        cameraController.dispose();
+      if (_controller != null && _controller!.value.isInitialized) {
+        _controller!.dispose();
       }
     } else if (state == AppLifecycleState.resumed) {
-      // Check permissions again when app resumes (user might have granted in settings)
       _checkPermissionAndInitialize();
     }
   }
 
+  Future<void> _requestCameraPermissionOnLaunch() async {
+    final status = await PermissionService.getCameraPermissionStatus();
+    if (PermissionService.isPermissionGranted(status)) {
+      _initializeCamera();
+    } else {
+      _requestCameraPermission();
+    }
+  }
+
   Future<void> _checkPermissionAndInitialize() async {
-    _permissionStatus = await Permission.camera.status;
-    if (_permissionStatus == PermissionStatus.granted) {
+    _permissionStatus = await PermissionService.getCameraPermissionStatus();
+    if (PermissionService.isPermissionGranted(_permissionStatus!)) {
       _initializeCamera();
     } else {
       setState(() {
-        _errorMessage = null; // Clear any previous error
+        _errorMessage = null;
       });
     }
   }
 
   Future<void> _requestCameraPermission() async {
-    final status = await Permission.camera.request();
+    final status = await PermissionService.requestCameraPermission();
     setState(() {
       _permissionStatus = status;
     });
 
-    if (status == PermissionStatus.granted) {
+    if (PermissionService.isPermissionGranted(status)) {
       _initializeCamera();
     }
-    // Remove automatic dialogs - let the UI handle the states
   }
 
   Future<void> _initializeCamera() async {
@@ -90,8 +95,7 @@ class _CameraScreenState extends State<CameraScreen>
         _isInitialized = false;
       });
 
-      // Get available cameras
-      _cameras = await availableCameras();
+      _cameras = await CameraService.getAvailableCameras();
       if (_cameras == null || _cameras!.isEmpty) {
         setState(() {
           _errorMessage = 'No cameras found on this device';
@@ -99,14 +103,7 @@ class _CameraScreenState extends State<CameraScreen>
         return;
       }
 
-      // Initialize camera controller
-      _controller = CameraController(
-        _cameras![0],
-        ResolutionPreset.high,
-        enableAudio: false,
-      );
-
-      await _controller!.initialize();
+      _controller = await CameraService.initializeCamera(_cameras![0]);
 
       if (mounted) {
         setState(() {
@@ -127,90 +124,22 @@ class _CameraScreenState extends State<CameraScreen>
       return;
     }
 
-    // Add haptic feedback
     HapticFeedback.mediumImpact();
-
     setState(() {
       _isProcessing = true;
     });
 
-    String? croppedPath;
-    String originalPath = '';
-
     try {
-      // Capture image
-      final XFile image = await _controller!.takePicture();
+      final String originalPath =
+          await CameraService.captureImage(_controller!);
+      final result = await ScanService.processImage(originalPath);
 
-      // Get app directory for saving images
-      final Directory appDir = await getApplicationDocumentsDirectory();
-      final String timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-      originalPath = '${appDir.path}/scan_$timestamp.jpg';
-
-      // Copy captured image to app directory
-      await File(image.path).copy(originalPath);
-
-      // Crop image to rectangle bounds (center rectangle)
-      // Rectangle is 85% width, 30% height, centered
-      const double rectWidth = 0.85;
-      const double rectHeight = 0.30;
-      const double rectX = (1.0 - rectWidth) / 2;
-      const double rectY = (1.0 - rectHeight) / 2;
-
-      croppedPath = await OCRService.cropImage(
-          originalPath, rectX, rectY, rectWidth, rectHeight);
-
-      if (croppedPath == null) {
-        throw Exception('Failed to crop image to rectangle bounds');
-      }
-
-      // Extract numbers using OCR
-      final List<String> numbers = await OCRService.extractNumbers(croppedPath);
-
-      // Always save result to database (even if no numbers found)
-      final ScanResult result = ScanResult(
-        id: timestamp,
-        timestamp: DateTime.now(),
-        extractedNumbers: numbers,
-        imagePath: croppedPath, // Always save the cropped image path
-      );
-
-      await DatabaseHelper().insertScanResult(result);
-
-      // Show result message with better UI feedback
       if (mounted) {
-        _showResultSnackBar(numbers);
-      }
-
-      // Clean up original image (keep cropped image)
-      if (originalPath.isNotEmpty) {
-        await File(originalPath).delete();
+        _showResultSnackBar(result.extractedNumbers);
       }
     } catch (e) {
-      // Clean up files on error
-      if (originalPath.isNotEmpty && File(originalPath).existsSync()) {
-        await File(originalPath).delete();
-      }
-      if (croppedPath != null && File(croppedPath).existsSync()) {
-        await File(croppedPath).delete();
-      }
-
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.error, color: Colors.white),
-                const SizedBox(width: 8),
-                Expanded(
-                    child: Text('Error processing image: ${e.toString()}')),
-              ],
-            ),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          ),
-        );
+        _showErrorSnackBar(e.toString());
       }
     } finally {
       setState(() {
@@ -254,11 +183,21 @@ class _CameraScreenState extends State<CameraScreen>
     );
   }
 
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _controller?.dispose();
-    super.dispose();
+  void _showErrorSnackBar(String error) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.error, color: Colors.white),
+            const SizedBox(width: 8),
+            Expanded(child: Text('Error processing image: $error')),
+          ],
+        ),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    );
   }
 
   @override
@@ -266,487 +205,79 @@ class _CameraScreenState extends State<CameraScreen>
     return Scaffold(
       backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        title: const Text(
-          'OCR Scanner',
-          style: TextStyle(fontWeight: FontWeight.w600),
-        ),
-        backgroundColor: Colors.transparent,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        actions: [
-          Container(
-            margin: const EdgeInsets.only(right: 8),
-            decoration: BoxDecoration(
-              color: Colors.black26,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: IconButton(
-              icon: const Icon(Icons.history_rounded),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (context) => const HistoryScreen()),
-                );
-              },
-              tooltip: 'View scan history',
-            ),
-          ),
-        ],
-      ),
+      appBar: _buildAppBar(),
       body: _buildBody(),
     );
   }
 
-  Widget _buildBody() {
-    // Handle permission states
-    if (_permissionStatus == null) {
-      return _buildLoadingWidget();
-    }
-
-    if (_permissionStatus != PermissionStatus.granted) {
-      return _buildPermissionWidget();
-    }
-
-    if (_errorMessage != null) {
-      return _buildErrorWidget();
-    }
-
-    if (!_isInitialized) {
-      return _buildLoadingWidget();
-    }
-
-    return Stack(
-      children: [
-        // Camera preview
-        Positioned.fill(
-          child: CameraPreview(_controller!),
-        ),
-
-        // Camera overlay with rectangle guide
-        const CameraOverlay(),
-
-        // Enhanced capture button with animation
-        Positioned(
-          bottom: 40,
-          left: 0,
-          right: 0,
-          child: Column(
-            children: [
-              // Capture button
-              GestureDetector(
-                onTap: _isProcessing ? null : _captureAndProcess,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  width: _isProcessing ? 70 : 80,
-                  height: _isProcessing ? 70 : 80,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _isProcessing ? Colors.grey[300] : Colors.white,
-                    border: Border.all(
-                      color: Colors.white,
-                      width: _isProcessing ? 2 : 4,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: _isProcessing
-                      ? const Center(
-                          child: CircularProgressIndicator(
-                            strokeWidth: 3,
-                            color: Colors.black54,
-                          ),
-                        )
-                      : const Icon(
-                          Icons.camera_alt_rounded,
-                          size: 36,
-                          color: Colors.black87,
-                        ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              // Capture hint
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.black38,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  _isProcessing ? 'Processing...' : 'Tap to capture',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ],
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      title: const Text(
+        'OCR Scanner',
+        style: TextStyle(fontWeight: FontWeight.w600),
+      ),
+      backgroundColor: Colors.transparent,
+      foregroundColor: Colors.white,
+      elevation: 0,
+      actions: [
+        Container(
+          margin: const EdgeInsets.only(right: 8),
+          decoration: BoxDecoration(
+            color: Colors.black26,
+            borderRadius: BorderRadius.circular(20),
           ),
-        ),
-
-        // Enhanced instructions
-        Positioned(
-          top: MediaQuery.of(context).padding.top + 80,
-          left: 20,
-          right: 20,
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Colors.black.withOpacity(0.7),
-                  Colors.black.withOpacity(0.5),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white24),
-            ),
-            child: const Row(
-              children: [
-                Icon(
-                  Icons.center_focus_strong_rounded,
-                  color: Colors.white,
-                  size: 20,
-                ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Position numbers within the rectangle frame',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+          child: IconButton(
+            icon: const Icon(Icons.history_rounded),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const HistoryScreen()),
+              );
+            },
+            tooltip: 'View scan history',
           ),
         ),
       ],
     );
   }
 
-  Widget _buildLoadingWidget() {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Colors.black87, Colors.black],
+  Widget _buildBody() {
+    if (_permissionStatus == null) {
+      return const LoadingWidget(message: 'Initializing camera...');
+    }
+
+    if (!PermissionService.isPermissionGranted(_permissionStatus!)) {
+      return PermissionWidget(
+        permissionStatus: _permissionStatus,
+        onRequestPermission: _requestCameraPermission,
+        onOpenSettings: () => PermissionService.openDeviceSettings(),
+        onRefresh: _checkPermissionAndInitialize,
+      );
+    }
+
+    if (_errorMessage != null) {
+      return ErrorDisplayWidget(
+        errorMessage: _errorMessage!,
+        onRetry: _checkPermissionAndInitialize,
+      );
+    }
+
+    if (!_isInitialized) {
+      return const LoadingWidget(message: 'Initializing camera...');
+    }
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: CameraPreview(_controller!),
         ),
-      ),
-      child: const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(
-              color: Colors.white,
-              strokeWidth: 3,
-            ),
-            SizedBox(height: 24),
-            Text(
-              'Initializing camera...',
-              style: TextStyle(
-                color: Colors.white70,
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
+        const CameraOverlay(),
+        const CameraInstructions(),
+        CameraControls(
+          isProcessing: _isProcessing,
+          onCapture: _captureAndProcess,
         ),
-      ),
-    );
-  }
-
-  Widget _buildPermissionWidget() {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Colors.black87, Colors.black],
-        ),
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Camera icon
-              Container(
-                padding: const EdgeInsets.all(32),
-                decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                  border:
-                      Border.all(color: Colors.blue.withOpacity(0.3), width: 2),
-                ),
-                child: const Icon(
-                  Icons.camera_alt_rounded,
-                  size: 80,
-                  color: Colors.blue,
-                ),
-              ),
-
-              const SizedBox(height: 40),
-
-              // Title
-              const Text(
-                'Camera Access Required',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-              ),
-
-              const SizedBox(height: 16),
-
-              // Description
-              Text(
-                'To scan numbers from images, this app needs access to your camera. Your privacy is important - images are processed locally on your device.',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.8),
-                  fontSize: 16,
-                  height: 1.6,
-                ),
-                textAlign: TextAlign.center,
-              ),
-
-              const SizedBox(height: 40),
-
-              // Permission button
-              if (_permissionStatus != PermissionStatus.permanentlyDenied) ...[
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _requestCameraPermission,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 18),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      elevation: 8,
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.camera_alt_rounded, size: 24),
-                        const SizedBox(width: 12),
-                        Text(
-                          _permissionStatus == PermissionStatus.denied
-                              ? 'Try Again'
-                              : 'Grant Camera Permission',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-
-              // Denied state message
-              if (_permissionStatus == PermissionStatus.denied) ...[
-                const SizedBox(height: 24),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.orange.withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.warning_rounded, color: Colors.orange),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Permission was denied. Please grant camera access to continue.',
-                          style: TextStyle(
-                            color: Colors.orange.withOpacity(0.9),
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-
-              // Permanently denied state
-              if (_permissionStatus == PermissionStatus.permanentlyDenied) ...[
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.red.withOpacity(0.3)),
-                  ),
-                  child: Column(
-                    children: [
-                      const Icon(
-                        Icons.block_rounded,
-                        color: Colors.red,
-                        size: 32,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Camera permission was permanently denied. Please enable it in your device settings to continue.',
-                        style: TextStyle(
-                          color: Colors.red.withOpacity(0.9),
-                          fontSize: 16,
-                          height: 1.4,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 20),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton(
-                              onPressed: () => openAppSettings(),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red,
-                                foregroundColor: Colors.white,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                              child: const Text(
-                                'Open Settings',
-                                style: TextStyle(fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: _checkPermissionAndInitialize,
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                side: const BorderSide(color: Colors.white54),
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                              child: const Text(
-                                'Refresh',
-                                style: TextStyle(fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildErrorWidget() {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Colors.black87, Colors.black],
-        ),
-      ),
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.red.withOpacity(0.3)),
-                ),
-                child: const Icon(
-                  Icons.error_outline_rounded,
-                  size: 64,
-                  color: Colors.red,
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Camera Error',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                _errorMessage!,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.8),
-                  fontSize: 16,
-                  height: 1.5,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    setState(() {
-                      _errorMessage = null;
-                    });
-                    _checkPermissionAndInitialize();
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Text(
-                    'Try Again',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+      ],
     );
   }
 }
