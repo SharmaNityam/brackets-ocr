@@ -53,12 +53,8 @@ class _CameraScreenState extends State<CameraScreen>
         _controller!.dispose();
       }
     } else if (state == AppLifecycleState.resumed) {
-      // Add a small delay to ensure settings changes are reflected
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted) {
-          _checkPermissionAndInitialize();
-        }
-      });
+      // Check permissions again when app resumes (user might have granted in settings)
+      _checkPermissionAndInitialize();
     }
   }
 
