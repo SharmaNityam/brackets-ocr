@@ -6,14 +6,14 @@ The OCR Scanner App is a Flutter mobile application that leverages camera-based 
 
 ## Core Functionality
 
-### 🎯 **Primary Features**
+### Primary Features
 - **Live Camera Preview**: Real-time camera feed with overlay guidance
 - **Number Extraction**: OCR-powered number detection and extraction
 - **Image Processing**: Automatic cropping to rectangular bounds
 - **History Management**: Complete scan history with detailed views
 - **Data Persistence**: Local SQLite database storage
 
-### 📱 **User Journey**
+### User Journey
 1. **Launch**: App requests camera permissions with educational messaging
 2. **Capture**: User positions numbers within rectangle guide and taps capture
 3. **Processing**: Image is cropped and processed through OCR engine
@@ -22,7 +22,7 @@ The OCR Scanner App is a Flutter mobile application that leverages camera-based 
 
 ## Technical Architecture
 
-### 🏗️ **Project Structure**
+### Project Structure
 ```
 lib/
 ├── models/
@@ -47,7 +47,7 @@ lib/
     └── empty_state_widget.dart    # Empty state messaging
 ```
 
-### 🔧 **Service Layer Architecture**
+### Service Layer Architecture
 
 **PermissionService**
 - Handles camera permission requests and status checking
@@ -72,19 +72,19 @@ lib/
 
 ## Key Technical Decisions
 
-### 🎨 **UI/UX Design Choices**
+### UI/UX Design Choices
 - **Rectangle Overlay**: Fixed 85% width × 30% height for optimal number scanning
 - **Material Design 3**: Modern UI components with gradient effects and animations
 - **Haptic Feedback**: Enhanced user interaction with tactile responses
 - **Progressive Disclosure**: Guided permission flow with educational messaging
 
-### 🔍 **OCR Implementation Strategy**
+### OCR Implementation Strategy
 - **Google ML Kit**: Chosen for offline processing and high accuracy
 - **Image Preprocessing**: Automatic cropping to improve OCR accuracy
 - **Number Filtering**: Regex-based extraction of numeric content only
 - **Result Ordering**: Top-to-bottom, left-to-right text block sorting
 
-### 💾 **Data Management Approach**
+### Data Management Approach
 - **Local Storage**: SQLite for offline functionality and privacy
 - **Image Persistence**: Cropped images saved for complete scan history
 - **Unique Identifiers**: Timestamp-based IDs for scan result tracking
@@ -92,13 +92,13 @@ lib/
 
 ## Performance Optimizations
 
-### 📊 **Image Processing**
+### Image Processing
 - **Efficient Cropping**: Direct pixel manipulation for fast processing
 - **Memory Management**: Proper image disposal to prevent memory leaks
 - **Background Processing**: OCR operations don't block UI thread
 - **Compression**: Optimized image storage for minimal space usage
 
-### 🚀 **App Performance**
+### App Performance
 - **Lazy Loading**: Widgets loaded on demand for faster startup
 - **State Management**: Efficient setState usage for smooth animations
 - **Resource Cleanup**: Proper disposal of controllers and observers
@@ -106,26 +106,26 @@ lib/
 
 ## Security & Privacy
 
-### 🔒 **Privacy-First Design**
+### Privacy-First Design
 - **Local Processing**: All OCR operations performed on-device
 - **No Network Requests**: Complete offline functionality
 - **User Control**: Users can delete scan history at any time
 - **Permission Transparency**: Clear explanation of camera usage
 
-### 🛡️ **Data Protection**
+### Data Protection
 - **Local Storage Only**: No cloud uploads or external data sharing
 - **Secure File Handling**: Proper file permissions and access control
 - **User Consent**: Explicit permission requests with usage explanation
 
 ## Quality Assurance
 
-### ✅ **Code Quality**
+### Code Quality
 - **Clean Architecture**: Separation of concerns with service layer
 - **Error Handling**: Comprehensive error states and user feedback
 - **Code Documentation**: Inline comments and method documentation
 - **Consistent Styling**: Flutter linting rules and formatting standards
 
-### 🧪 **Testing Strategy**
+### Testing Strategy
 - **Widget Tests**: UI component testing framework
 - **Integration Tests**: End-to-end user flow validation
 - **Error Scenarios**: Edge case handling and graceful degradation
@@ -133,13 +133,13 @@ lib/
 
 ## Deployment & Distribution
 
-### 📦 **Build Configuration**
+### Build Configuration
 - **Android**: Optimized APK with proper permissions and signing
 - **iOS**: App Store ready with Info.plist configuration
 - **Release Builds**: Minified and optimized for production deployment
 - **Platform Compatibility**: Android 21+ and iOS 11+ support
 
-### 🔄 **Maintenance Strategy**
+### Maintenance Strategy
 - **Dependency Management**: Regular updates for security and performance
 - **Version Control**: Semantic versioning with clear release notes
 - **Bug Tracking**: Issue templates and systematic resolution process
@@ -147,13 +147,13 @@ lib/
 
 ## Success Metrics
 
-### 📈 **Performance Targets**
+### Performance Targets
 - **OCR Accuracy**: 85-95% for clear, well-lit numbers
 - **Processing Time**: 1-3 seconds per image capture
 - **App Responsiveness**: 60fps UI interactions
 - **Storage Efficiency**: Minimal space usage with image compression
 
-### 👥 **User Experience Goals**
+### User Experience Goals
 - **Intuitive Interface**: Minimal learning curve for new users
 - **Reliable Functionality**: Consistent performance across devices
 - **Accessibility**: Support for various user needs and preferences
