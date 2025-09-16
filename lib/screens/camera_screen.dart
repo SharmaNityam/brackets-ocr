@@ -53,7 +53,12 @@ class _CameraScreenState extends State<CameraScreen>
         _controller!.dispose();
       }
     } else if (state == AppLifecycleState.resumed) {
-      _checkPermissionAndInitialize();
+      // Add a small delay to ensure settings changes are reflected
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) {
+          _checkPermissionAndInitialize();
+        }
+      });
     }
   }
 
@@ -67,13 +72,15 @@ class _CameraScreenState extends State<CameraScreen>
   }
 
   Future<void> _checkPermissionAndInitialize() async {
-    _permissionStatus = await PermissionService.getCameraPermissionStatus();
-    if (PermissionService.isPermissionGranted(_permissionStatus!)) {
+    final status = await PermissionService.getCameraPermissionStatus();
+    setState(() {
+      _permissionStatus = status;
+      _errorMessage = null;
+      _isInitialized = false;
+    });
+
+    if (PermissionService.isPermissionGranted(status)) {
       _initializeCamera();
-    } else {
-      setState(() {
-        _errorMessage = null;
-      });
     }
   }
 
